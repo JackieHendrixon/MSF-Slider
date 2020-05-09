@@ -24,9 +24,12 @@ class TestViewController:UIViewController {
         singleTapGestureRecognizer.numberOfTapsRequired = 1
         self.view.addGestureRecognizer(singleTapGestureRecognizer)
         
+        
         let doubleTapGestureRecognizer = UITapGestureRecognizer(target: self, action: #selector(didDoubleTap))
         doubleTapGestureRecognizer.numberOfTapsRequired = 2
         self.view.addGestureRecognizer(doubleTapGestureRecognizer)
+        
+        singleTapGestureRecognizer.require(toFail: doubleTapGestureRecognizer)
         
         let panGestureRecognizer = UIPanGestureRecognizer(target: self, action: #selector(didPan))
         self.view.addGestureRecognizer(panGestureRecognizer)
@@ -40,27 +43,40 @@ class TestViewController:UIViewController {
     }
     
     @objc func didSingleTap(_ sender: UITapGestureRecognizer) {
-    
+        
         let location = sender.location(in: self.view)
+        
+        
         
         if let selectedPoint = self.view.hitTest(location, with: nil) as? Point {
             if let point = selectedPoint as? BezierPathPoint {
-                point.isSelected =  !point.isSelected
+                plot?.selectedPoint = point
+                
+                
+                
             }
-        } else {
             
-            let point = BezierPathPoint(location)
-            plot?.addPoint(point)
+            
+            
+        } else {
+            if plot?.selectedPoint == nil {
+                let point = BezierPathPoint(location)
+                plot?.addPoint(point)
+            } else {
+                plot?.selectedPoint = nil
+            }
+            
         }
     }
+    
     
     @objc func didDoubleTap(_ sender: UITapGestureRecognizer) {
         let location = sender.location(in: self.view)
         
-        if let selectedPoint = self.view.hitTest(location, with: nil) as? Point {
+        if let selectedPoint = self.view.hitTest(location, with: nil) as? BezierPathPoint {
             plot?.deletePoint(selectedPoint)
         } else {
-        
+            
         }
     }
     
@@ -77,12 +93,10 @@ class TestViewController:UIViewController {
             if let selectedPoint = self.selectedPoint {
                 let location = sender.location(in: self.view)
                 
-                if let selectedPoint = selectedPoint as? ControlPoint {
-//                    selectedPoint.move(to: location)
-                    
-                } else {
-                
-                plot?.movePoint(selectedPoint, to: location)
+                if let controlPoint = selectedPoint as? ControlPoint {
+                    plot?.movePoint(controlPoint, to: location)
+                } else if let selectedPoint = selectedPoint as? BezierPathPoint {
+                    plot?.movePoint(selectedPoint, to: location)
                 }
             }
             
@@ -92,11 +106,9 @@ class TestViewController:UIViewController {
     }
     
     @objc func didPinch(_ sender: UIPinchGestureRecognizer) {
-        let location = sender.location(in: self.view)
+        //        let location = sender.location(in: self.view)
         
-//        let point = Point(position: location)
-//        point.backgroundColor = .red
-//        self.view.addSubview(point)
+        
     }
     
     required init?(coder aDecoder: NSCoder) {
@@ -106,41 +118,185 @@ class TestViewController:UIViewController {
 
 
 class Plot: UIView{
-    var points = [Point]()
+    var points = [BezierPathPoint]()
     
-    var pathLayer = CAShapeLayer()
+    
+    var plotPathLayer = CAShapeLayer()
+    var controlPathLayer = CAShapeLayer()
+    
+    weak var selectedPoint: BezierPathPoint? {
+        willSet {
+            if let newValue = newValue {
+                newValue.isSelected = true
+                
+            }
+            if let selectedPoint = selectedPoint {
+                    selectedPoint.isSelected = false
+                }
+            }
+    }
     
     override init(frame: CGRect) {
         super.init(frame: frame)
         self.backgroundColor = .clear
         
-        pathLayer.fillColor = UIColor.clear.cgColor
-        pathLayer.strokeColor = UIColor.blue.cgColor
-        pathLayer.lineWidth = 2.0
-        self.layer.addSublayer(pathLayer)
+        plotPathLayer.fillColor = UIColor.clear.cgColor
+        plotPathLayer.strokeColor = UIColor.blue.cgColor
+        plotPathLayer.lineWidth = 2.0
+        self.layer.addSublayer(plotPathLayer)
+        
+        controlPathLayer.fillColor = UIColor.clear.cgColor
+        controlPathLayer.strokeColor = UIColor.gray.cgColor
+        controlPathLayer.lineWidth = 1.0
+        self.layer.addSublayer(controlPathLayer)
     }
     
     override func draw(_ rect: CGRect) {
-        guard !points.isEmpty else { return }
-        let path = UIBezierPath()
-        path.move(to: points[0].center)
+        plotPathLayer.path = nil
+        guard points.count>1 else { return }
         
-        for point in points {
-            path.addLine(to: point.center)
+        let plotPath = UIBezierPath()
+        plotPath.move(to: points[0].center)
+        
+        
+        for i in 1...points.count-1 {
+            if let controlPoint1 = points[i-1].controlPoint2, let controlPoint2 = points[i].controlPoint1 {
+                plotPath.addCurve(to: points[i].center, controlPoint1: controlPoint1.center, controlPoint2: controlPoint2.center)
+            }
         }
-        pathLayer.path = path.cgPath
+        plotPathLayer.path = plotPath.cgPath
+        
+        
     }
     
-    func addPoint(_ point: Point) {
+    func addPoint(_ point: BezierPathPoint) {
         guard !points.contains(point) else { return }
+        
+        if let i = points.firstIndex(where: {$0.center.x > point.center.x}) {
+            points.insert(point, at: i)
+        } else  {
+            points.append(point)
+        }
+        
+        let i = points.firstIndex(of: point)!
+        
+        switch points.count {
+        case 1:
+            break
+        case 2:
+            points[0].controlPoint2 = ControlPoint.inDirection(of: points[1], for: points[0])
+            self.addSubview(points[0].controlPoint2!)
+            points[1].controlPoint1 = ControlPoint.inDirection(of: points[0], for: points[1])
+            self.addSubview(points[1].controlPoint1!)
+            
+        default:
+            if point == points.first {
+                point.controlPoint2 = ControlPoint.inDirection(of: points[1], for: point)
+                self.addSubview(point.controlPoint2!)
+                ControlPoint.smoothBetween(previous: point, next: points[i+2], for: &points[i+1])
+                self.addSubview(points[i+1].controlPoint1!)
+                self.addSubview(points[i+1].controlPoint2!)
+                
+            } else if point == points.last {
+                point.controlPoint1 = ControlPoint.inDirection(of: points[points.count-2], for: point)
+                self.addSubview(point.controlPoint1!)
+                ControlPoint.smoothBetween(previous: points[i-2], next: point, for: &points[i-1])
+                self.addSubview(points[i-1].controlPoint1!)
+                self.addSubview( points[i-1].controlPoint2!)
+            } else {
+                ControlPoint.smoothBetween(previous: points[i-1], next: points[i+1], for: &points[i])
+                
+                self.addSubview(point.controlPoint1!)
+                
+                self.addSubview(point.controlPoint2!)
+                
+            }
+            //            {
+            //                points[1].controlPoint1 = ControlPoint(points[1].center - CGPoint(x: 100, y: 100), for: points[1])
+            //                self.addSubview(points[1].controlPoint1!)
+            //            }
+            //             else {
+            //                let i = points.count-2
+            //                points[i].controlPoint2 = ControlPoint(points[i].center - CGPoint(x: 100, y: 100), for: points[i])
+            //                self.addSubview(points[i].controlPoint2!)
+            //            }
+            
+            
+        }
+        
         self.addSubview(point)
-        points.append(point)
+        self.setNeedsDisplay()
+    }
+    
+    func movePoint(_ point: BezierPathPoint, to destination: CGPoint) {
+        
+        let i = points.firstIndex(of: point)!
+        
+        var validatedDestination = destination
+        
+        if i > 0 {
+            let previous = points[i-1]
+            if destination.x < previous.center.x {
+                validatedDestination.x = previous.center.x
+            }
+        }
+        
+        if i < points.count-1 {
+            let previous = points[i+1]
+            if destination.x > previous.center.x {
+                validatedDestination.x = previous.center.x
+            }
+        }
+        
+        
+       
+        
+        
+        if let controlPoint1 = point.controlPoint1 {
+            controlPoint1.moveTo(validatedDestination + controlPoint1.relativePosition)
+        }
+        
+        if let controlPoint2 = point.controlPoint2 {
+            controlPoint2.moveTo(validatedDestination + controlPoint2.relativePosition)
+        }
+        
+        
+        point.moveTo(validatedDestination)
         
         self.setNeedsDisplay()
     }
     
-    func movePoint(_ point: Point, to destination: CGPoint) {
-        point.moveTo(destination)
+    func movePoint(_ controlPoint: ControlPoint, to destination: CGPoint) {
+        
+        
+        let secondControlPoint: ControlPoint?
+        var validatedDestination = destination
+        if controlPoint === controlPoint.parent.controlPoint1 {
+            secondControlPoint = controlPoint.parent.controlPoint2
+            if destination.x > controlPoint.parent.center.x {
+                validatedDestination.x = controlPoint.parent.center.x
+            }
+        } else {
+            secondControlPoint = controlPoint.parent.controlPoint1
+            if destination.x < controlPoint.parent.center.x {
+                validatedDestination.x = controlPoint.parent.center.x
+            }
+        }
+        
+        let minDistanceFromParent:CGFloat = 20
+        if validatedDestination.distanceTo(controlPoint.parent.center) < minDistanceFromParent {
+            let y = validatedDestination.y - controlPoint.parent.center.y
+            
+            validatedDestination.x = controlPoint.parent.center.x + (minDistanceFromParent*minDistanceFromParent-y*y).squareRoot()
+        }
+        controlPoint.moveTo(validatedDestination)
+        
+        if let secondControlPoint = secondControlPoint {
+            let distance = secondControlPoint.center.distanceTo(controlPoint.parent.center)
+            let newPosition = CGPoint.colinearTo(controlPoint.parent.center, direction: controlPoint.center, distance: -distance)
+            secondControlPoint.moveTo(newPosition)
+        }
+        
         self.setNeedsDisplay()
     }
     
@@ -148,11 +304,44 @@ class Plot: UIView{
         
     }
     
-    func deletePoint(_ point: Point) {
-        point.removeFromSuperview()
+    func deletePoint(_ point: BezierPathPoint) {
+        guard points.contains(point) else { return }
+        
+        switch points.count {
+        case 1:
+            break
+        case 2:
+            
+            if point != points.first {
+                points[0].controlPoint2 = nil
+            } else {
+                points[1].controlPoint1 = nil
+            }
+            
+        default:
+            
+            if point == points.last {
+                points[points.count-2].controlPoint2 = nil
+                point.controlPoint1 = nil
+            } else if point == points.first {
+                points[1].controlPoint1 = nil
+                points[1].controlPoint1 = nil
+                point.controlPoint2 = nil
+            }
+        }
+        
+        point.controlPoint1 = nil
+        point.controlPoint2 = nil
+        
         points = points.filter({$0 !== point})
+        
+        point.removeFromSuperview()
         self.setNeedsDisplay()
     }
+    
+    //    func deletePoint(_ controlPoint: ControlPoint?) {
+    //        controlPoint.
+    //    }
     
     required init?(coder aDecoder: NSCoder) {
         fatalError("coder not implemented")
@@ -160,23 +349,28 @@ class Plot: UIView{
 }
 
 class BezierPathPoint: Point {
-    var isSelected: Bool = true {
+    
+    var isSelected: Bool = false {
         didSet {
-            isSelected ? self.becomeFirstResponder() : self.resignFirstResponder()
             controlPoint1?.isHidden = !isSelected
             controlPoint2?.isHidden = !isSelected
         }
     }
     
-    var controlPoint1: ControlPoint?
-    var controlPoint2: ControlPoint?
-
+    var controlPoint1: ControlPoint? {
+        willSet {
+            controlPoint1?.removeFromSuperview()
+        }
+    }
+    var controlPoint2: ControlPoint? {
+        willSet {
+            controlPoint2?.removeFromSuperview()
+        }
+    }
+    
     override init(_ position: CGPoint) {
         super.init(position)
-        self.controlPoint1 = ControlPoint(CGPoint(x: 100, y: 0), relativeTo: self.bounds.center, for: self)
-        self.controlPoint2 = ControlPoint(CGPoint(x: 0, y: 100), relativeTo: self.bounds.center, for: self)
-        self.addSubview(self.controlPoint1!)
-        self.addSubview(self.controlPoint2!)
+        
         backgroundColor = .orange
         
     }
@@ -188,13 +382,33 @@ class BezierPathPoint: Point {
 
 
 class ControlPoint: Point {
-    weak var parent: Point!
+    static func inDirection(of point: BezierPathPoint, for parent: BezierPathPoint) -> ControlPoint {
+        let direction = (point.center - parent.center) / parent.center.distanceTo(point.center)
+        let position = parent.center + direction * 30
+        return ControlPoint(position, for: parent)
+    }
+    
+    static func smoothBetween(previous: BezierPathPoint, next: BezierPathPoint, for parent: inout BezierPathPoint) {
+        let distance1 = (previous.center - parent.center)/2
+        let controlPoint1 = ControlPoint(parent.center + CGPoint(x: distance1.x, y: 0), for: parent)
+        let distance2 = (next.center - parent.center)/2
+        let controlPoint2 = ControlPoint(parent.center + CGPoint(x: distance2.x, y: 0), for: parent)
+        
+        parent.controlPoint1 = controlPoint1
+        parent.controlPoint2 = controlPoint2
+    }
+    
+    
+    weak var parent: BezierPathPoint!
+    var relativePosition: CGPoint {
+        return self.center - parent.center
+    }
     var pathLayer = CAShapeLayer()
     
-    init(_ position: CGPoint, relativeTo: CGPoint, for point: Point) {
-        super.init(position + relativeTo)
+    init(_ position: CGPoint, for point: BezierPathPoint) {
+        super.init(position)
         self.parent = point
-        
+        self.isHidden = true
         self.backgroundColor = UIColor.clear
         self.layer.borderColor = UIColor.gray.cgColor
         self.layer.borderWidth = 3.0
@@ -206,11 +420,17 @@ class ControlPoint: Point {
     
     override func draw(_ rect: CGRect) {
         super.draw(rect)
-        let path = UIBezierPath()
-        path.move(to: self.bounds.center)
-        path.addLine(to: convert( parent.bounds.center , from: parent))
-        pathLayer.path = path.cgPath
         
+        let path = CGMutablePath()
+        path.move(to: superview!.convert(self.center, to: self))
+        path.addLine(to: superview!.convert(self.parent.center, to: self))
+        
+        pathLayer.path = path
+    }
+    
+    override func moveTo(_ position: CGPoint) {
+        super.moveTo(position)
+        self.setNeedsDisplay()
     }
     
     required init?(coder aDecoder: NSCoder) {
@@ -245,5 +465,6 @@ class Point: UIView {
         let expandedBounds = self.bounds.insetBy(dx: inset , dy: inset)
         return expandedBounds.contains(point)
     }
+    
 }
 

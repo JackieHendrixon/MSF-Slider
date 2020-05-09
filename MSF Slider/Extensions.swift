@@ -87,12 +87,51 @@ extension CGPoint {
         return CGPoint(x: lhs.x - rhs.x, y: lhs.y - rhs.y)
     }
     
+    static func /(lhs: CGPoint, rhs: CGFloat) -> CGPoint {
+        var rhs = rhs
+        if rhs == 0 {
+            rhs = CGFloat.leastNonzeroMagnitude
+        }
+        return CGPoint(x: lhs.x / rhs, y: lhs.y / rhs)
+    }
+    
+    static func *(lhs: CGPoint, rhs: CGFloat) -> CGPoint {
+        return CGPoint(x: lhs.x * rhs, y: lhs.y * rhs)
+    }
+    
     static func +=(lhs: inout CGPoint, rhs: CGPoint) {
         lhs = lhs + rhs
     }
     
     static func -=(lhs: inout CGPoint, rhs: CGPoint) {
         lhs = lhs - rhs
+    }
+    
+    static func /=(lhs: inout CGPoint, rhs: CGFloat) {
+        lhs = lhs / rhs
+    }
+    
+    static func *=(lhs: inout CGPoint, rhs: CGFloat) {
+        lhs = lhs * rhs
+    }
+    
+    func distanceTo(_ point: CGPoint) -> CGFloat {
+        let x = (self.x - point.x)
+        let y = (self.y - point.y)
+        
+        return (x*x + y*y).squareRoot()
+    }
+    
+    
+    
+    
+    
+    static func colinearTo(_ point: CGPoint, direction: CGPoint, distance: CGFloat) -> CGPoint {
+        
+        let direction = (direction-point)/direction.distanceTo(point)
+        
+        return point + direction*distance
+        
     }
     
     
