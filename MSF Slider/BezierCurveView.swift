@@ -51,12 +51,7 @@ class TestViewController:UIViewController {
         if let selectedPoint = self.view.hitTest(location, with: nil) as? Point {
             if let point = selectedPoint as? BezierPathPoint {
                 plot?.selectedPoint = point
-                
-                
-                
             }
-            
-            
             
         } else {
             if plot?.selectedPoint == nil {
@@ -65,7 +60,6 @@ class TestViewController:UIViewController {
             } else {
                 plot?.selectedPoint = nil
             }
-            
         }
     }
     
@@ -165,8 +159,6 @@ class Plot: UIView{
             }
         }
         plotPathLayer.path = plotPath.cgPath
-        
-        
     }
     
     func addPoint(_ point: BezierPathPoint) {
@@ -207,20 +199,9 @@ class Plot: UIView{
                 ControlPoint.smoothBetween(previous: points[i-1], next: points[i+1], for: &points[i])
                 
                 self.addSubview(point.controlPoint1!)
-                
                 self.addSubview(point.controlPoint2!)
                 
             }
-            //            {
-            //                points[1].controlPoint1 = ControlPoint(points[1].center - CGPoint(x: 100, y: 100), for: points[1])
-            //                self.addSubview(points[1].controlPoint1!)
-            //            }
-            //             else {
-            //                let i = points.count-2
-            //                points[i].controlPoint2 = ControlPoint(points[i].center - CGPoint(x: 100, y: 100), for: points[i])
-            //                self.addSubview(points[i].controlPoint2!)
-            //            }
-            
             
         }
         
@@ -229,38 +210,8 @@ class Plot: UIView{
     }
     
     func movePoint(_ point: BezierPathPoint, to destination: CGPoint) {
-        
-        let i = points.firstIndex(of: point)!
-        
-        var validatedDestination = destination
-        
-        if i > 0 {
-            let previous = points[i-1]
-            if destination.x < previous.center.x {
-                validatedDestination.x = previous.center.x
-            }
-        }
-        
-        if i < points.count-1 {
-            let previous = points[i+1]
-            if destination.x > previous.center.x {
-                validatedDestination.x = previous.center.x
-            }
-        }
-        
-        
-       
-        
-        
-        if let controlPoint1 = point.controlPoint1 {
-            controlPoint1.moveTo(validatedDestination + controlPoint1.relativePosition)
-        }
-        
-        if let controlPoint2 = point.controlPoint2 {
-            controlPoint2.moveTo(validatedDestination + controlPoint2.relativePosition)
-        }
-        
-        
+
+        var validatedDestination = validate(position: destination, for: point)
         point.moveTo(validatedDestination)
         
         self.setNeedsDisplay()
@@ -268,34 +219,10 @@ class Plot: UIView{
     
     func movePoint(_ controlPoint: ControlPoint, to destination: CGPoint) {
         
-        
-        let secondControlPoint: ControlPoint?
-        var validatedDestination = destination
-        if controlPoint === controlPoint.parent.controlPoint1 {
-            secondControlPoint = controlPoint.parent.controlPoint2
-            if destination.x > controlPoint.parent.center.x {
-                validatedDestination.x = controlPoint.parent.center.x
-            }
-        } else {
-            secondControlPoint = controlPoint.parent.controlPoint1
-            if destination.x < controlPoint.parent.center.x {
-                validatedDestination.x = controlPoint.parent.center.x
-            }
-        }
-        
-        let minDistanceFromParent:CGFloat = 20
-        if validatedDestination.distanceTo(controlPoint.parent.center) < minDistanceFromParent {
-            let y = validatedDestination.y - controlPoint.parent.center.y
-            
-            validatedDestination.x = controlPoint.parent.center.x + (minDistanceFromParent*minDistanceFromParent-y*y).squareRoot()
-        }
+        var validatedDestination = validate(position: destination, for: controlPoint)
         controlPoint.moveTo(validatedDestination)
         
-        if let secondControlPoint = secondControlPoint {
-            let distance = secondControlPoint.center.distanceTo(controlPoint.parent.center)
-            let newPosition = CGPoint.colinearTo(controlPoint.parent.center, direction: controlPoint.center, distance: -distance)
-            secondControlPoint.moveTo(newPosition)
-        }
+        updateSecondControlPoint(for: controlPoint)
         
         self.setNeedsDisplay()
     }
@@ -311,7 +238,6 @@ class Plot: UIView{
         case 1:
             break
         case 2:
-            
             if point != points.first {
                 points[0].controlPoint2 = nil
             } else {
@@ -339,9 +265,115 @@ class Plot: UIView{
         self.setNeedsDisplay()
     }
     
-    //    func deletePoint(_ controlPoint: ControlPoint?) {
-    //        controlPoint.
-    //    }
+    private func validate(position: CGPoint, for point: BezierPathPoint) -> CGPoint {
+        let i = points.firstIndex(of: point)!
+        
+        var validatedPosition = position
+        
+        if i > 0 {
+            let previous = points[i-1]
+            let limit = previous.center.x + previous.radius + point.radius
+            if position.x < limit + point.radius {
+                validatedPosition.x = limit + point.radius
+            }
+            //            if let controlPoint1 = point.controlPoint1 {
+            //                let newPosition = validatedDestination +
+            //                if validatedDestination.x + controlPoint1.relativePosition.x < limit {
+            //                    newPosition.x = limit.x
+            //                } else {
+            //                    controlPoint1.moveTo(validatedDestination + controlPoint1.relativePosition)
+            //                }
+            //
+            //            }
+            //
+            //            if let controlPoint2 = point.controlPoint2 {
+            //                controlPoint2.moveTo(validatedDestination + controlPoint2.relativePosition)
+            //            }
+        }
+        
+        if i < points.count-1 {
+            let next = points[i+1]
+            if position.x > next.center.x - next.radius - point.radius {
+                validatedPosition.x = next.center.x - next.radius*2 - point.radius
+            }
+            
+        }
+        
+        if let controlPoint1 = point.controlPoint1 {
+            
+            controlPoint1.moveTo(validatedPosition + controlPoint1.relativePosition)
+        }
+        
+        if let controlPoint2 = point.controlPoint2 {
+            controlPoint2.moveTo(validatedPosition + controlPoint2.relativePosition)
+        }
+        
+        return validatedPosition
+
+    }
+    
+    private func validate(position: CGPoint, for controlPoint: ControlPoint) -> CGPoint {
+        var validatedPosition = position
+        
+        if controlPoint === controlPoint.parent.controlPoint1 {
+            if position.x > controlPoint.parent.center.x {
+                validatedPosition.x = controlPoint.parent.center.x
+            }
+        } else {
+            if position.x < controlPoint.parent.center.x {
+                validatedPosition.x = controlPoint.parent.center.x
+            }
+        }
+        
+        let minDistanceFromParent:CGFloat = controlPoint.parent.radius + controlPoint.radius
+        if validatedPosition.distanceTo(controlPoint.parent.center) < minDistanceFromParent {
+            let y = validatedPosition.y - controlPoint.parent.center.y
+            
+            if controlPoint === controlPoint.parent.controlPoint1 {
+                validatedPosition.x = controlPoint.parent.center.x - (minDistanceFromParent*minDistanceFromParent-y*y).squareRoot()
+            } else {
+                validatedPosition.x = controlPoint.parent.center.x + (minDistanceFromParent*minDistanceFromParent-y*y).squareRoot()
+            }
+        }
+        
+        let i = points.firstIndex(of: controlPoint.parent)!
+        
+        if i > 0, controlPoint === controlPoint.parent.controlPoint1 {
+            let limit = points[i-1].center.x + points[i-1].radius + controlPoint.radius
+            if controlPoint.center.x < limit {
+                if controlPoint.frozenRelativePosition == nil {
+                    controlPoint.frozenRelativePosition = controlPoint.relativePosition
+                }
+                
+                validatedPosition.y = controlPoint.frozenRelativePosition!.y
+                validatedPosition.x = limit
+            } else {
+                if controlPoint.frozenRelativePosition != nil, validatedPosition.x > controlPoint.frozenRelativePosition!.x {
+                    validatedPosition.x = limit
+                } else {
+                    controlPoint.frozenRelativePosition = nil
+                }
+            }
+        }
+
+        return validatedPosition
+    }
+    
+    private func updateSecondControlPoint(for controlPoint: ControlPoint) {
+        var secondControlPoint: ControlPoint?
+        
+        if controlPoint === controlPoint.parent.controlPoint1 {
+            secondControlPoint = controlPoint.parent.controlPoint2
+        } else {
+            secondControlPoint = controlPoint.parent.controlPoint1
+        }
+        
+        if let secondControlPoint = secondControlPoint {
+            let distance = secondControlPoint.center.distanceTo(controlPoint.parent.center)
+            let newPosition = CGPoint.colinearTo(controlPoint.parent.center, direction: controlPoint.center, distance: -distance)
+            secondControlPoint.moveTo(newPosition)
+        }
+    }
     
     required init?(coder aDecoder: NSCoder) {
         fatalError("coder not implemented")
@@ -403,6 +435,7 @@ class ControlPoint: Point {
     var relativePosition: CGPoint {
         return self.center - parent.center
     }
+    var frozenRelativePosition: CGPoint?
     var pathLayer = CAShapeLayer()
     
     init(_ position: CGPoint, for point: BezierPathPoint) {
@@ -453,8 +486,6 @@ class Point: UIView {
     func moveTo(_ position: CGPoint) {
         self.center = position
     }
-    
-    
     
     required init?(coder aDecoder: NSCoder) {
         fatalError("coder not implemented")
